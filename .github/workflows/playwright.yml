@@ -1,0 +1,88 @@
+name: Scheduled PolicyCenter Tests
+
+on:
+  schedule:
+    - cron: '0 6 * * *'
+  workflow_dispatch:
+    inputs:
+      suite:
+        description: Test suite to run
+        type: choice
+        required: true
+        default: smoke
+        options:
+          - smoke
+          - sanity
+          - regression
+          - e2e
+          - all
+  push:
+    branches: [ main, master ]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: policycenter-tests-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  test:
+    timeout-minutes: 60
+    runs-on: ubuntu-latest
+    env:
+      CI: 'true'
+      SUITE: ${{ github.event_name == 'workflow_dispatch' && inputs.suite || 'smoke' }}
+      POLICYCENTER_URL: ${{ secrets.POLICYCENTER_URL }}
+      POLICYCENTER_USERNAME: ${{ secrets.POLICYCENTER_USERNAME }}
+      POLICYCENTER_PASSWORD: ${{ secrets.POLICYCENTER_PASSWORD }}
+      POLICYCENTER_TEST_COMPANY: ${{ secrets.POLICYCENTER_TEST_COMPANY }}
+      POLICYCENTER_TEST_ACCOUNT_NUMBER: ${{ secrets.POLICYCENTER_TEST_ACCOUNT_NUMBER }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+      - name: Verify PolicyCenter URL
+        shell: bash
+        run: |
+          if [ -z "$POLICYCENTER_URL" ]; then
+            echo "::error::Required repository secret POLICYCENTER_URL is not configured."
+            exit 1
+          fi
+      - name: Verify PolicyCenter secrets for full suites
+        if: env.SUITE != 'smoke'
+        shell: bash
+        run: |
+          missing=0
+          for name in POLICYCENTER_USERNAME POLICYCENTER_PASSWORD POLICYCENTER_TEST_COMPANY POLICYCENTER_TEST_ACCOUNT_NUMBER; do
+            if [ -z "${!name}" ]; then
+              echo "::error::Required repository secret $name is not configured."
+              missing=1
+            fi
+          done
+          exit "$missing"
+      - name: Run selected Cucumber suite
+        shell: bash
+        run: |
+          case "$SUITE" in
+            smoke) npm run test:smoke ;;
+            sanity) npm run test:sanity ;;
+            regression) npm run test:regression ;;
+            e2e) npm run test:e2e ;;
+            all) npm run test:bdd ;;
+            *) echo "::error::Unsupported suite '$SUITE'."; exit 1 ;;
+          esac
+      - name: Upload test reports and evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: policycenter-test-evidence-${{ github.run_number }}
+          path: reports/
+          if-no-files-found: warn
+          retention-days: 30
