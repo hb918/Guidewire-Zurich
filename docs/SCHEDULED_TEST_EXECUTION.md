@@ -3,11 +3,12 @@
 ## Client overview
 
 The Guidewire PolicyCenter and OrangeHRM Playwright checks can run in GitHub
-Actions or Jenkins and publish test evidence for each run. Both scheduled
-configurations run the Smoke suite in Chromium daily at
-approximately **06:00 UTC (11:30 India Standard Time)**. The suite checks the
-configured PolicyCenter login page and OrangeHRM demo login page. It does not
-create a policy submission.
+Actions or Jenkins and publish test evidence for each run. GitHub Actions uses
+a dedicated self-hosted Linux runner on the approved PolicyCenter network
+because the PolicyCenter environment rejects GitHub-hosted runner IP addresses.
+The scheduled Smoke suite runs in Chromium daily at approximately **06:00 UTC
+(11:30 India Standard Time)**. It checks the configured PolicyCenter login
+page and OrangeHRM demo login page. It does not create a policy submission.
 
 The GitHub Actions workflow runs Smoke for pushes to `main` or `master`. It
 does not execute tests for pull requests, so untrusted pull request code cannot
@@ -54,22 +55,44 @@ End-to-End, and All also require account credentials and test fixture values.
 Jenkins archives the Playwright HTML report and test results, even if the test
 stage fails.
 
-## One-time repository setup
+## GitHub Actions self-hosted runner setup
 
-1. Add the workflow to the repository at `.github/workflows/playwright.yml`.
-2. In GitHub, open **Settings → Secrets and variables → Actions** and create
+The workflow requires a runner with all four labels:
+`self-hosted`, `linux`, `x64`, and `policycenter-network`. If no matching
+runner is online, GitHub leaves the job queued; it cannot reach PolicyCenter
+from a GitHub-hosted runner.
+
+1. Provision an approved, dedicated Ubuntu/Linux machine that can reach the
+   PolicyCenter test URL from its network. Confirm the machine is permitted by
+   the application/network owner; do not try to bypass the IP allowlist.
+2. In the repository, open **Settings → Actions → Runners → New self-hosted
+   runner**, select Linux x64, and follow GitHub's displayed download and
+   configuration commands on that machine. Keep the one-time registration
+   token private; do not put it in this repository or share it in chat.
+3. Add the custom runner label `policycenter-network` in the runner setup, or
+   add it later under the runner's settings. Keep the default `self-hosted`,
+   `linux`, and `x64` labels. Configure the runner as a service so it remains
+   online for scheduled jobs, and restrict its runner group to this repository.
+4. Install Node.js 22, npm, Git, Xvfb, and the Linux libraries required by
+   Chromium. From the checked-out repository, run `npm ci` and
+   `npx playwright install --with-deps chromium`. The runner account must be
+   allowed to install the browser dependencies (or have them preinstalled).
+   Verify that the runner can reach GitHub and the approved PolicyCenter URL.
+5. In GitHub, open **Settings → Secrets and variables → Actions** and create
    these repository secrets:
    - `POLICYCENTER_URL` — full login page URL for the approved test environment.
    - `POLICYCENTER_USERNAME` — automation account username.
    - `POLICYCENTER_PASSWORD` — automation account password.
    - `POLICYCENTER_TEST_COMPANY` — approved non-production test company.
    - `POLICYCENTER_TEST_ACCOUNT_NUMBER` — account number for that test company.
-3. Protect the automation account and target environment according to the
+6. Protect the automation account and target environment according to the
    client's access-control policy. Do not put credentials in source files or
    workflow logs.
-4. Confirm Actions are enabled for the repository and that the default branch
-   contains this workflow. GitHub scheduled workflows run from the default
-   branch.
+7. Confirm Actions are enabled, the runner is online with all required labels,
+   and the default branch contains this workflow. GitHub scheduled workflows
+   run from the default branch. Start **Actions → Scheduled Browser Tests →
+   Run workflow** and select Smoke to verify runner and network access before
+   relying on the next scheduled run.
 
 Suites that include Guidewire tests require `POLICYCENTER_URL`. Regression,
 End-to-End, and All also require the username, password, test company, and test
@@ -133,5 +156,5 @@ non-production test data, and apply the client's data-retention policy.
 - The daily scheduled Smoke check does not replace the full regression suite.
 - Configure GitHub notifications or repository rules to alert the responsible
   team when a scheduled run fails.
-- GitHub Actions requires a GitHub-hosted or appropriately configured
-  self-hosted runner with access to the PolicyCenter test environment.
+- GitHub Actions requires the dedicated self-hosted Linux runner to be online
+  and labeled `policycenter-network` to access the PolicyCenter test environment.
