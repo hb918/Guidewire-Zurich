@@ -30,7 +30,7 @@ concurrency:
 jobs:
   test:
     timeout-minutes: 60
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, x64, policycenter-network]
     env:
       CI: 'true'
       SUITE: ${{ github.event_name == 'workflow_dispatch' && inputs.suite || 'smoke' }}
