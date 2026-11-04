@@ -14,8 +14,8 @@ pipeline {
   parameters {
     choice(
       name: 'SUITE',
-      choices: ['smoke', 'sanity', 'regression', 'e2e', 'all'],
-      description: 'Cucumber suite to run. Scheduled builds use the default Smoke suite.'
+      choices: ['smoke', 'orangehrm', 'sanity', 'regression', 'e2e', 'all'],
+      description: 'Playwright tests to run. Scheduled builds use Smoke.'
     )
   }
 
@@ -24,90 +24,78 @@ pipeline {
   }
 
   stages {
-    stage('Checkout') {
+    stage('Checkout and install') {
       steps {
         checkout scm
-      }
-    }
-
-    stage('Install dependencies and browser') {
-      steps {
-        sh 'node --version'
-        sh 'npm --version'
-        sh 'npm ci'
-        sh 'npx playwright install --with-deps chromium'
-      }
-    }
-
-    stage('Verify PolicyCenter credentials') {
-      when {
-        expression { params.SUITE != 'smoke' }
-      }
-      steps {
-        withCredentials([
-          usernamePassword(
-            credentialsId: 'policycenter-credentials',
-            usernameVariable: 'POLICYCENTER_USERNAME',
-            passwordVariable: 'POLICYCENTER_PASSWORD'
-          ),
-          string(credentialsId: 'policycenter-test-company', variable: 'POLICYCENTER_TEST_COMPANY'),
-          string(credentialsId: 'policycenter-test-account-number', variable: 'POLICYCENTER_TEST_ACCOUNT_NUMBER')
-        ]) {
-          sh '''
-            test -n "$POLICYCENTER_USERNAME"
-            test -n "$POLICYCENTER_PASSWORD"
-            test -n "$POLICYCENTER_TEST_COMPANY"
-            test -n "$POLICYCENTER_TEST_ACCOUNT_NUMBER"
-          '''
+        script {
+          if (isUnix()) {
+            sh 'node --version && npm --version && npm ci && npx playwright install --with-deps chromium'
+          } else {
+            bat 'node --version && npm --version && npm ci && npx playwright install chromium'
+          }
         }
       }
     }
 
-    stage('Verify PolicyCenter URL') {
-      steps {
-        withCredentials([
-          string(credentialsId: 'policycenter-url', variable: 'POLICYCENTER_URL')
-        ]) {
-          sh 'test -n "$POLICYCENTER_URL"'
-        }
-      }
-    }
-
-    stage('Run Cucumber suite') {
+    stage('Run Playwright tests') {
       steps {
         script {
-          if (params.SUITE == 'smoke') {
-            withCredentials([
-              string(credentialsId: 'policycenter-url', variable: 'POLICYCENTER_URL')
-            ]) {
-              sh 'npm run test:smoke'
+          def suiteArgs
+          switch (params.SUITE) {
+            case 'smoke':
+              suiteArgs = '--grep @Smoke'
+              break
+            case 'orangehrm':
+              suiteArgs = 'tests/orangehrm/orangehrm.spec.ts'
+              break
+            case 'sanity':
+              suiteArgs = '--grep @Sanity'
+              break
+            case 'regression':
+              suiteArgs = '--grep @Regression'
+              break
+            case 'e2e':
+              suiteArgs = '--grep @EndToEnd'
+              break
+            case 'all':
+              suiteArgs = ''
+              break
+            default:
+              error("Unsupported suite: ${params.SUITE}")
+          }
+
+          def testCommand = isUnix()
+            ? "xvfb-run --auto-servernum npx playwright test ${suiteArgs} --project=chromium"
+            : "npx playwright test ${suiteArgs} --project=chromium"
+
+          if (params.SUITE == 'orangehrm') {
+            if (isUnix()) {
+              sh testCommand
+            } else {
+              bat testCommand
             }
           } else {
-            withCredentials([
-              usernamePassword(
-                credentialsId: 'policycenter-credentials',
-                usernameVariable: 'POLICYCENTER_USERNAME',
-                passwordVariable: 'POLICYCENTER_PASSWORD'
-              ),
-              string(credentialsId: 'policycenter-test-company', variable: 'POLICYCENTER_TEST_COMPANY'),
-              string(credentialsId: 'policycenter-test-account-number', variable: 'POLICYCENTER_TEST_ACCOUNT_NUMBER'),
+            def credentials = [
               string(credentialsId: 'policycenter-url', variable: 'POLICYCENTER_URL')
-            ]) {
-              switch (params.SUITE) {
-                case 'sanity':
-                  sh 'npm run test:sanity'
-                  break
-                case 'regression':
-                  sh 'npm run test:regression'
-                  break
-                case 'e2e':
-                  sh 'npm run test:e2e'
-                  break
-                case 'all':
-                  sh 'npm run test:bdd'
-                  break
-                default:
-                  error("Unsupported suite: ${params.SUITE}")
+            ]
+
+            if (!['smoke', 'sanity'].contains(params.SUITE)) {
+              credentials.addAll([
+                usernamePassword(
+                  credentialsId: 'policycenter-credentials',
+                  usernameVariable: 'POLICYCENTER_USERNAME',
+                  passwordVariable: 'POLICYCENTER_PASSWORD'
+                ),
+                string(credentialsId: 'policycenter-test-company', variable: 'POLICYCENTER_TEST_COMPANY'),
+                string(credentialsId: 'policycenter-test-account-number', variable: 'POLICYCENTER_TEST_ACCOUNT_NUMBER')
+              ])
+            }
+
+            withCredentials(credentials) {
+              if (isUnix()) {
+                sh testCommand
+              } else {
+                bat testCommand
               }
             }
           }
@@ -118,7 +106,7 @@ pipeline {
 
   post {
     always {
-      archiveArtifacts artifacts: 'reports/**/*', allowEmptyArchive: true
+      archiveArtifacts artifacts: 'playwright-report/**/*,test-results/**/*', allowEmptyArchive: true
     }
   }
 }

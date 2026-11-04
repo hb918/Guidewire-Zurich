@@ -1,4 +1,4 @@
-name: Scheduled PolicyCenter Tests
+name: Scheduled Browser Tests
 
 on:
   schedule:
@@ -12,6 +12,7 @@ on:
         default: smoke
         options:
           - smoke
+          - orangehrm
           - sanity
           - regression
           - e2e
@@ -49,6 +50,7 @@ jobs:
       - name: Install Chromium
         run: npx playwright install --with-deps chromium
       - name: Verify PolicyCenter URL
+        if: env.SUITE != 'orangehrm'
         shell: bash
         run: |
           if [ -z "$POLICYCENTER_URL" ]; then
@@ -56,7 +58,7 @@ jobs:
             exit 1
           fi
       - name: Verify PolicyCenter secrets for full suites
-        if: env.SUITE != 'smoke'
+        if: env.SUITE == 'regression' || env.SUITE == 'e2e' || env.SUITE == 'all'
         shell: bash
         run: |
           missing=0
@@ -67,22 +69,27 @@ jobs:
             fi
           done
           exit "$missing"
-      - name: Run selected Cucumber suite
+      - name: Run selected Playwright suite
         shell: bash
         run: |
           case "$SUITE" in
-            smoke) npm run test:smoke ;;
-            sanity) npm run test:sanity ;;
-            regression) npm run test:regression ;;
-            e2e) npm run test:e2e ;;
-            all) npm run test:bdd ;;
+            smoke) suite_args="--grep @Smoke" ;;
+            orangehrm) suite_args="tests/orangehrm/orangehrm.spec.ts" ;;
+            sanity) suite_args="--grep @Sanity" ;;
+            regression) suite_args="--grep @Regression" ;;
+            e2e) suite_args="--grep @EndToEnd" ;;
+            all) suite_args="" ;;
             *) echo "::error::Unsupported suite '$SUITE'."; exit 1 ;;
           esac
+
+          xvfb-run --auto-servernum npx playwright test $suite_args --project=chromium
       - name: Upload test reports and evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: policycenter-test-evidence-${{ github.run_number }}
-          path: reports/
+          name: browser-test-evidence-${{ github.run_number }}
+          path: |
+            playwright-report/
+            test-results/
           if-no-files-found: warn
           retention-days: 30
