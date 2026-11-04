@@ -1,45 +1,86 @@
-# Guidewire Zurich UI Automation
+# Guidewire and OrangeHRM Playwright Tests
 
-Playwright browser automation with Cucumber feature files for validating
-Guidewire PolicyCenter workflows.
+This project uses Playwright Test for both Guidewire PolicyCenter and
+OrangeHRM. `playwright.config.ts` is the single source of truth for worker
+count, parallel execution, browser projects, headed/headless mode, and reports.
 
-## Run locally
+## Install
 
-Install dependencies and the Chromium browser:
-
-```sh
+```cmd
 npm ci
 npx playwright install chromium
 ```
 
-Set `POLICYCENTER_URL` to the approved test login page, then run the
-availability check:
+## Configure execution
 
-```sh
-npm run test:smoke
+Edit `playwright.config.ts` to control `workers`, `fullyParallel`, browser
+projects, reporting, and the default `headless` setting. By default, the suite
+uses two workers, runs tests fully parallel, and opens browsers in headed mode.
+Set `headless: true` there for headless mode or `headless: false` for headed
+mode. GitHub Actions and Linux Jenkins agents use Xvfb so headed execution
+works on headless runners.
+
+## Run by spec filename
+
+Run either spec separately:
+
+```cmd
+npx playwright test tests/guidewire/policycenter.spec.ts
+npx playwright test tests/orangehrm/orangehrm.spec.ts
 ```
 
-The login flow also requires `POLICYCENTER_USERNAME` and
-`POLICYCENTER_PASSWORD`. Submission scenarios additionally require
-`POLICYCENTER_TEST_COMPANY` and `POLICYCENTER_TEST_ACCOUNT_NUMBER`. Supply
-these values through a secure environment or CI secret store; do not commit
-credentials, account data, or generated reports.
+Run both specs together. Playwright applies the same config settings to both:
 
-Available suites:
+```cmd
+npx playwright test tests/guidewire/policycenter.spec.ts tests/orangehrm/orangehrm.spec.ts
+```
 
-| Command | Scenarios |
-| --- | --- |
-| `npm run test:smoke` | `@Smoke` |
-| `npm run test:sanity` | `@Sanity` |
-| `npm run test:regression` | `@Regression` |
-| `npm run test:e2e` | `@EndToEnd` |
-| `npm run test:bdd` | All Cucumber scenarios |
+Use forward slashes in spec paths, even in Windows Command Prompt. Playwright
+matches file arguments as regular expressions, so Windows backslashes can make
+the path fail to match.
 
-## Continuous execution
+The default config uses two workers, `fullyParallel: true`, and headed
+execution (`headless: false`). Edit those values in `playwright.config.ts`;
+there is no separate runner or worker script.
 
-- GitHub Actions schedule, manual suite selection, and setup:
-  [Scheduled test execution](docs/SCHEDULED_TEST_EXECUTION.md)
-- Jenkins Pipeline definition: [Jenkinsfile](Jenkinsfile)
+## Tags and suites
 
-The Smoke suite checks the login page only. Other suites may create test
-submissions; run them only against an approved non-production environment.
+Tags are part of each Playwright test title. Use `--grep` to select a suite:
+
+```cmd
+npm run test:smoke
+npm run test:sanity
+npm run test:regression
+npm run test:e2e
+npm run test:orangehrm
+```
+
+`npm test` runs all specs in the configured Chromium project. Cross-browser
+execution is currently disabled; add another browser project in
+`playwright.config.ts` before using it.
+
+The built-in HTML report combines results from all specs in that run. It is
+written to `playwright-report/`:
+
+```cmd
+npx playwright show-report
+```
+
+## Test environments
+
+OrangeHRM uses the public demo login page unless `ORANGEHRM_URL` is set.
+Guidewire requires a local `.env` file containing the approved `POLICYCENTER_URL`.
+The submission test also requires `POLICYCENTER_USERNAME`,
+`POLICYCENTER_PASSWORD`, `POLICYCENTER_TEST_COMPANY`, and
+`POLICYCENTER_TEST_ACCOUNT_NUMBER`. Keep credentials and test account data out
+of source control. The submission flow runs only in Chromium to avoid creating
+duplicate submissions. Current local and scheduled executions use Chromium.
+
+To run only Guidewire smoke coverage:
+
+```cmd
+npx playwright test tests/guidewire/policycenter.spec.ts --grep "@Smoke"
+```
+
+GitHub Actions and Jenkins run the Playwright specs and archive the built-in
+HTML report. The Smoke suite runs on schedule; manual runs can select a suite.

@@ -13,7 +13,7 @@
   },
   "include": [
     "pages/**/*.ts",
-    "step-definitions/**/*.ts",
+    "tests/**/*.ts",
     "helper/**/*.ts"
   ],
   "exclude": ["node_modules", "reports"]
